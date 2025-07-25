@@ -49,7 +49,7 @@ This is message 1
 This is message 2
 /timenow
 /remain
-/timenow
+/delete
 ```
 🕐 The bot will schedule the messages at:
 

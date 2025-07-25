@@ -24,6 +24,10 @@ start_time = None
 messages_queue = []
 scheduled_jobs = []
 
+# --- Caption State ---
+caption_enabled = False
+caption_text = ""
+
 # --- APScheduler ---
 scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
@@ -62,6 +66,11 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please set /channel and /time first.")
         return
     text = update.message.text
+
+    # Add caption if enabled
+    if caption_enabled and caption_text:
+        text += f"\n\n{caption_text}"
+
     index = len(messages_queue)
     delay = timedelta(minutes=10 * index)
     scheduled_time = start_time + delay
@@ -103,6 +112,21 @@ async def delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messages_queue.clear()
     await update.message.reply_text(f"{count} scheduled message(s) deleted.")
 
+async def caption_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global caption_enabled
+    caption_enabled = True
+    await update.message.reply_text("✅ Captioning is now ON.")
+
+async def caption_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global caption_enabled
+    caption_enabled = False
+    await update.message.reply_text("❌ Captioning is now OFF.")
+
+async def caption_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global caption_text
+    caption_text = " ".join(context.args)
+    await update.message.reply_text(f"✏️ Caption set to:\n{caption_text}")
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(msg="Exception while handling update:", exc_info=context.error)
 
@@ -115,6 +139,9 @@ def main():
     app.add_handler(CommandHandler("timenow", timenow))
     app.add_handler(CommandHandler("remain", remain))
     app.add_handler(CommandHandler("delete", delete_all))
+    app.add_handler(CommandHandler("caption", caption_on))
+    app.add_handler(CommandHandler("captionoff", caption_off))
+    app.add_handler(CommandHandler("captionset", caption_set))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message))
     app.add_error_handler(error_handler)
 

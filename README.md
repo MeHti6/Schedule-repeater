@@ -13,6 +13,9 @@ It is designed to run 24/7 on [PythonAnywhere](https://www.pythonanywhere.com/) 
 - `/timenow` — Show the current time and day in Tehran  
 - `/remain` — Show how many messages are scheduled and how many remain
 - `/delete` — Cancel all scheduled messages
+- `/caption`	Turns captioning ON.
+- `/captionoff`	Turns captioning OFF.
+- `/captionset` your text here	Sets the caption text. Will be added after two line breaks in every message if captioning is ON.
 - 📨 Send messages after `/time` — they will be scheduled 10 minutes apart  
 - 🕒 Works 24/7 using PythonAnywhere's **Always-on Task**  
 

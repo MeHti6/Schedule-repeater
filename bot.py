@@ -1,145 +1,126 @@
 import logging
-import asyncio
 import pytz
 from datetime import datetime, timedelta
-
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler,
-    MessageHandler, ContextTypes, filters
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters
 )
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
+import asyncio
 
-# Configure logging
+# --- Config ---
+TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"
+tehran = pytz.timezone("Asia/Tehran")
+
+# --- Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global session store and loop reference
-user_sessions = {}
-tehran_tz = pytz.timezone("Asia/Tehran")
-event_loop = None  # For running async jobs from threads
+# --- Globals ---
+channel_id = None
+start_time = None
+messages_queue = []
+scheduled_jobs = []
 
-# Initialize the scheduler
-scheduler = BackgroundScheduler(timezone=tehran_tz)
+# --- APScheduler ---
+scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
 
-
-# === Command Handlers ===
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome! Use /channel <channel_id> to begin.")
-
+# --- Commands ---
 
 async def set_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("Usage: /channel <channel_id> (e.g., @mychannel or -1001234567890)")
-        return
-
-    channel_id = context.args[0]
-    user_sessions[user_id] = {
-        "channel_id": channel_id,
-        "messages": [],
-        "start_time": None
-    }
-    await update.message.reply_text(f"✅ Channel set to {channel_id}. Now use /time <date>, <HH:MM>")
-
+    global channel_id
+    if context.args:
+        channel_id = context.args[0]
+        await update.message.reply_text(f"Channel set to {channel_id}")
+    else:
+        await update.message.reply_text("Usage: /channel @channel_username_or_id")
 
 async def set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in user_sessions:
-        await update.message.reply_text("❗ First set the channel with /channel")
+    global start_time, messages_queue, scheduled_jobs
+    if not context.args:
+        await update.message.reply_text("Usage: /time Jul25, 13:20")
         return
-
     try:
-        date_str = " ".join(context.args)
-        dt = datetime.strptime(date_str, "%b%d, %H:%M")  # e.g., Jul25, 13:20
-        dt = dt.replace(year=datetime.now().year)
-        dt = tehran_tz.localize(dt)
-
-        user_sessions[user_id]["start_time"] = dt
-        user_sessions[user_id]["messages"] = []
-
-        await update.message.reply_text(
-            f"⏰ Time set to {dt.strftime('%Y-%m-%d %H:%M')} Tehran time.\nNow send me the messages to schedule!"
-        )
+        user_input = " ".join(context.args)
+        date_part, time_part = user_input.split(",")
+        now = datetime.now(tehran)
+        full_str = f"{now.year} {date_part.strip()} {time_part.strip()}"
+        start_time = datetime.strptime(full_str, "%Y %b%d %H:%M")
+        start_time = tehran.localize(start_time)
+        messages_queue.clear()
+        scheduled_jobs.clear()
+        await update.message.reply_text(f"Start time set to {start_time.strftime('%Y-%m-%d %H:%M %Z')}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Invalid time format. Use: /time Jul25, 13:20\nError: {e}")
+        await update.message.reply_text(f"Error parsing time: {e}")
 
+async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global start_time, messages_queue, scheduled_jobs
+    if not channel_id or not start_time:
+        await update.message.reply_text("Please set /channel and /time first.")
+        return
+    text = update.message.text
+    index = len(messages_queue)
+    delay = timedelta(minutes=10 * index)
+    scheduled_time = start_time + delay
+    job_id = f"{update.message.message_id}-{int(scheduled_time.timestamp())}"
+
+    def run_async_job(bot, chat_id, msg):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot.send_message(chat_id=chat_id, text=msg))
+        loop.close()
+
+    job = scheduler.add_job(run_async_job, 'date',
+                            run_date=scheduled_time,
+                            args=[context.bot, channel_id, text],
+                            id=job_id)
+
+    scheduled_jobs.append(job)
+    messages_queue.append(text)
+    await update.message.reply_text(f"Message scheduled at {scheduled_time.strftime('%H:%M')}")
 
 async def timenow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now(tehran_tz)
-    await update.message.reply_text(now.strftime("🕒 Tehran time: %A, %Y-%m-%d %H:%M"))
+    now = datetime.now(tehran).strftime("%Y-%m-%d %H:%M %Z")
+    await update.message.reply_text(f"Current Tehran time: {now}")
 
+async def remain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    remaining = [job for job in scheduled_jobs if job.next_run_time and job.next_run_time > datetime.now(tehran)]
+    await update.message.reply_text(f"{len(remaining)} messages remaining to send.")
 
-# === Handle incoming messages to schedule ===
+async def delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global scheduled_jobs, messages_queue
+    count = 0
+    for job in list(scheduled_jobs):
+        try:
+            scheduler.remove_job(job.id)
+            scheduled_jobs.remove(job)
+            count += 1
+        except JobLookupError:
+            pass  # Already run
+    messages_queue.clear()
+    await update.message.reply_text(f"{count} scheduled message(s) deleted.")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(msg="Exception while handling update:", exc_info=context.error)
 
-    if user_id not in user_sessions or not user_sessions[user_id].get("start_time"):
-        await update.message.reply_text("❗ Please use /channel and /time before sending messages.")
-        return
-
-    text = update.message.text
-    session = user_sessions[user_id]
-    session["messages"].append(text)
-
-    index = len(session["messages"]) - 1
-    send_time = session["start_time"] + timedelta(minutes=10 * index)
-
-    # Schedule the message safely
-    scheduler.add_job(
-        run_async_job,
-        'date',
-        run_date=send_time,
-        args=[context.application.bot, session["channel_id"], text]
-    )
-
-    await update.message.reply_text(
-        f"📨 Message scheduled for {send_time.strftime('%Y-%m-%d %H:%M')} Tehran time."
-    )
-
-
-# === Async send logic ===
-
-def run_async_job(bot, chat_id, message):
-    if event_loop:
-        asyncio.run_coroutine_threadsafe(
-            send_scheduled_message(bot, chat_id, message),
-            event_loop
-        )
-
-
-async def send_scheduled_message(bot, chat_id, message):
-    try:
-        await bot.send_message(chat_id=chat_id, text=message)
-        logger.info(f"✅ Sent message to {chat_id}")
-    except Exception as e:
-        logger.error(f"❌ Failed to send message to {chat_id}: {e}")
-
-
-# === Entry Point ===
-
+# --- Main ---
 def main():
-    global event_loop
-    TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"
-
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("channel", set_channel))
     app.add_handler(CommandHandler("time", set_time))
     app.add_handler(CommandHandler("timenow", timenow))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("remain", remain))
+    app.add_handler(CommandHandler("delete", delete_all))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_message))
+    app.add_error_handler(error_handler)
 
-    logger.info("🤖 Bot started...")
-
-    # Save event loop so APScheduler jobs can use it
-    event_loop = asyncio.get_event_loop()
-
+    print("Bot started.")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
+

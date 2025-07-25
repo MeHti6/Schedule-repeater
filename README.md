@@ -11,6 +11,8 @@ It is designed to run 24/7 on [PythonAnywhere](https://www.pythonanywhere.com/) 
 - `/channel <channel_id>` — Set the target channel  
 - `/time <MonthDay, HH:MM>` — Set the start time in Tehran timezone (e.g., `Jul25, 14:00`)  
 - `/timenow` — Show the current time and day in Tehran  
+- `/remain` — Show how many messages are scheduled and how many remain
+- `/delete` — Cancel all scheduled messages
 - 📨 Send messages after `/time` — they will be scheduled 10 minutes apart  
 - 🕒 Works 24/7 using PythonAnywhere's **Always-on Task**  
 
@@ -45,6 +47,8 @@ In your Telegram chat with the bot, send the following:
 /time Jul25, 14:00
 This is message 1
 This is message 2
+/timenow
+/remain
 /timenow
 ```
 🕐 The bot will schedule the messages at:

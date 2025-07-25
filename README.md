@@ -25,3 +25,36 @@ It is designed to run 24/7 on [PythonAnywhere](https://www.pythonanywhere.com/) 
 
 ```bash
 python3.10 -m pip install --user python-telegram-bot==20.7 APScheduler pytz
+```
+2. Replace the bot token
+Open your bot.py file and replace this line:
+
+```
+TOKEN = "YOUR_BOT_TOKEN_HERE"
+```
+
+3. Run the bot manually (for testing)
+```
+python3.10 bot.py
+```
+💬 Example Usage
+In your Telegram chat with the bot, send the following:
+
+```
+/channel @your_channel_username
+/time Jul25, 14:00
+This is message 1
+This is message 2
+/timenow
+```
+🕐 The bot will schedule the messages at:
+
+Jul 25, 14:00
+
+Jul 25, 14:10
+
+Jul 25, 14:20
+
+...
+
+Each new message is delayed 10 minutes from the previous one.

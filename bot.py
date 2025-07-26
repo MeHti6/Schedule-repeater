@@ -39,7 +39,7 @@ async def send_scheduled_message(bot, chat_id, msg):
 
 # --- Sync wrapper for scheduler ---
 def schedule_job(bot, chat_id, msg):
-    asyncio.create_task(send_scheduled_message(bot, chat_id, msg))
+    asyncio.run(send_scheduled_message(bot, chat_id, msg))
 
 # --- Commands ---
 

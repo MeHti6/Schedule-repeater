@@ -2,7 +2,7 @@ import logging
 import pytz
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.constants import ParseMode  # <-- Added
+from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
@@ -83,7 +83,7 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot.send_message(
                 chat_id=chat_id,
                 text=msg,
-                parse_mode=ParseMode.MARKDOWN,  # <-- Fixed
+                parse_mode=ParseMode.MARKDOWN,
                 disable_web_page_preview=False
             )
         )
@@ -99,8 +99,8 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Message scheduled at {scheduled_time.strftime('%H:%M')}")
 
 async def timenow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now(tehran).strftime("%Y-%m-%d %H:%M %Z")
-    await update.message.reply_text(f"Current Tehran time: {now}")
+    now = datetime.now(tehran).strftime("%b%d, %H:%M")
+    await update.message.reply_text(f"Current Tehran time (use with /time):\n`/{now}`", parse_mode=ParseMode.MARKDOWN)
 
 async def remain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = [job for job in scheduled_jobs if job.next_run_time and job.next_run_time > datetime.now(tehran)]
@@ -157,4 +157,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

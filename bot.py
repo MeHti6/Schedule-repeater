@@ -2,7 +2,7 @@ import logging
 import pytz
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode  # <-- Added
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
@@ -12,7 +12,7 @@ from apscheduler.jobstores.base import JobLookupError
 import asyncio
 
 # --- Config ---
-TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"
+TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"  # Replace with your bot token
 tehran = pytz.timezone("Asia/Tehran")
 
 # --- Logging ---
@@ -32,14 +32,6 @@ caption_text = ""
 # --- APScheduler ---
 scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
-
-# --- Async helper to send scheduled message ---
-async def send_scheduled_message(bot, chat_id, msg):
-    await bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=False)
-
-# --- Sync wrapper for scheduler ---
-def schedule_job(bot, chat_id, msg):
-    asyncio.run(send_scheduled_message(bot, chat_id, msg))
 
 # --- Commands ---
 
@@ -76,7 +68,6 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     text = update.message.text
 
-    # Add caption if enabled
     if caption_enabled and caption_text:
         text += f"\n\n{caption_text}"
 
@@ -85,7 +76,20 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scheduled_time = start_time + delay
     job_id = f"{update.message.message_id}-{int(scheduled_time.timestamp())}"
 
-    job = scheduler.add_job(schedule_job, 'date',
+    def run_async_job(bot, chat_id, msg):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(
+            bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN,  # <-- Fixed
+                disable_web_page_preview=False
+            )
+        )
+        loop.close()
+
+    job = scheduler.add_job(run_async_job, 'date',
                             run_date=scheduled_time,
                             args=[context.bot, channel_id, text],
                             id=job_id)
@@ -95,8 +99,8 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Message scheduled at {scheduled_time.strftime('%H:%M')}")
 
 async def timenow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now(tehran).strftime("%b%d, %H:%M")
-    await update.message.reply_text(f"/time {now}")
+    now = datetime.now(tehran).strftime("%Y-%m-%d %H:%M %Z")
+    await update.message.reply_text(f"Current Tehran time: {now}")
 
 async def remain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = [job for job in scheduled_jobs if job.next_run_time and job.next_run_time > datetime.now(tehran)]
@@ -111,7 +115,7 @@ async def delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
             scheduled_jobs.remove(job)
             count += 1
         except JobLookupError:
-            pass  # Already run
+            pass
     messages_queue.clear()
     await update.message.reply_text(f"{count} scheduled message(s) deleted.")
 
@@ -153,3 +157,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

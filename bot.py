@@ -1,11 +1,12 @@
 import logging
 import pytz
+import asyncio
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters
+    ContextTypes, filters, Application
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.base import JobLookupError
@@ -29,6 +30,8 @@ caption_text = ""
 
 scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
+
+bot_app: Application = None  # Reference to the running bot for scheduling
 
 # --- Handlers ---
 
@@ -58,9 +61,9 @@ async def set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error parsing time: {e}")
 
-async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE, chat_id, text):
+async def send_scheduled_message(bot, chat_id, text):
     try:
-        await context.bot.send_message(
+        await bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode=ParseMode.MARKDOWN,
@@ -69,8 +72,15 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE, chat_id, te
     except Exception as e:
         logger.error(f"Error sending message: {e}")
 
+def schedule_message(bot, loop, chat_id, text, run_time):
+    future = asyncio.run_coroutine_threadsafe(
+        send_scheduled_message(bot, chat_id, text),
+        loop
+    )
+    return future
+
 async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global start_time, messages_queue, scheduled_jobs
+    global start_time, messages_queue, scheduled_jobs, bot_app
 
     if not update.message or not update.message.text:
         return
@@ -89,9 +99,10 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job_id = f"{update.message.message_id}-{int(scheduled_time.timestamp())}"
 
     job = scheduler.add_job(
-        lambda: context.application.create_task(send_scheduled_message(context, channel_id, text)),
+        schedule_message,
         'date',
         run_date=scheduled_time,
+        args=[context.bot, bot_app.loop, channel_id, text, scheduled_time],
         id=job_id
     )
 
@@ -141,7 +152,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Main ---
 def main():
+    global bot_app
     app = ApplicationBuilder().token(TOKEN).build()
+    bot_app = app  # Save reference to app for accessing loop in scheduler
 
     app.add_handler(CommandHandler("channel", set_channel))
     app.add_handler(CommandHandler("time", set_time))

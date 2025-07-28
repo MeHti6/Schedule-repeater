@@ -9,10 +9,9 @@ from telegram.ext import (
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.base import JobLookupError
-import asyncio
 
 # --- Config ---
-TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"  # Replace with your bot token
+TOKEN = "5767354546:AAHua7CauSmV_aOH9lAjxqayAyti8MXgocw"
 tehran = pytz.timezone("Asia/Tehran")
 
 # --- Logging ---
@@ -25,15 +24,13 @@ start_time = None
 messages_queue = []
 scheduled_jobs = []
 
-# --- Caption State ---
 caption_enabled = False
 caption_text = ""
 
-# --- APScheduler ---
 scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
 
-# --- Commands ---
+# --- Handlers ---
 
 async def set_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global channel_id
@@ -61,13 +58,28 @@ async def set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error parsing time: {e}")
 
+async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE, chat_id, text):
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+
 async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global start_time, messages_queue, scheduled_jobs
+
+    if not update.message or not update.message.text:
+        return
+
     if not channel_id or not start_time:
         await update.message.reply_text("Please set /channel and /time first.")
         return
-    text = update.message.text
 
+    text = update.message.text
     if caption_enabled and caption_text:
         text += f"\n\n{caption_text}"
 
@@ -76,31 +88,21 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scheduled_time = start_time + delay
     job_id = f"{update.message.message_id}-{int(scheduled_time.timestamp())}"
 
-    def run_async_job(bot, chat_id, msg):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(
-            bot.send_message(
-                chat_id=chat_id,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-                disable_web_page_preview=False
-            )
-        )
-        loop.close()
+    job = scheduler.add_job(
+        lambda: context.application.create_task(send_scheduled_message(context, channel_id, text)),
+        'date',
+        run_date=scheduled_time,
+        id=job_id
+    )
 
-    job = scheduler.add_job(run_async_job, 'date',
-                            run_date=scheduled_time,
-                            args=[context.bot, channel_id, text],
-                            id=job_id)
-
-    scheduled_jobs.append(job)
     messages_queue.append(text)
+    scheduled_jobs.append(job)
     await update.message.reply_text(f"Message scheduled at {scheduled_time.strftime('%H:%M')}")
 
 async def timenow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now(tehran).strftime("%b%d, %H:%M")
-    await update.message.reply_text(f"Current Tehran time (use with /time):\n`/{now}`", parse_mode=ParseMode.MARKDOWN)
+    time_ago = datetime.now(tehran) - timedelta(minutes=10)
+    formatted = time_ago.strftime("/time %b%d, %H:%M")
+    await update.message.reply_text(formatted)
 
 async def remain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = [job for job in scheduled_jobs if job.next_run_time and job.next_run_time > datetime.now(tehran)]
@@ -135,7 +137,7 @@ async def caption_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✏️ Caption set to:\n{caption_text}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(msg="Exception while handling update:", exc_info=context.error)
+    logger.error("Exception while handling update:", exc_info=context.error)
 
 # --- Main ---
 def main():
@@ -157,5 +159,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

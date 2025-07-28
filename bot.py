@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters, Application
+    ContextTypes, filters
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.base import JobLookupError
@@ -31,7 +31,8 @@ caption_text = ""
 scheduler = BackgroundScheduler(timezone=tehran)
 scheduler.start()
 
-bot_app: Application = None  # Reference to the running bot for scheduling
+event_loop = None  # To be initialized at startup
+
 
 # --- Handlers ---
 
@@ -72,15 +73,15 @@ async def send_scheduled_message(bot, chat_id, text):
     except Exception as e:
         logger.error(f"Error sending message: {e}")
 
-def schedule_message(bot, loop, chat_id, text, run_time):
-    future = asyncio.run_coroutine_threadsafe(
+def schedule_message(bot, chat_id, text):
+    global event_loop
+    asyncio.run_coroutine_threadsafe(
         send_scheduled_message(bot, chat_id, text),
-        loop
+        event_loop
     )
-    return future
 
 async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global start_time, messages_queue, scheduled_jobs, bot_app
+    global start_time, messages_queue, scheduled_jobs
 
     if not update.message or not update.message.text:
         return
@@ -102,7 +103,7 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         schedule_message,
         'date',
         run_date=scheduled_time,
-        args=[context.bot, bot_app.loop, channel_id, text, scheduled_time],
+        args=[context.bot, channel_id, text],
         id=job_id
     )
 
@@ -150,11 +151,14 @@ async def caption_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("Exception while handling update:", exc_info=context.error)
 
+
 # --- Main ---
 def main():
-    global bot_app
+    global event_loop
     app = ApplicationBuilder().token(TOKEN).build()
-    bot_app = app  # Save reference to app for accessing loop in scheduler
+
+    # Capture the loop AFTER building the app
+    event_loop = asyncio.get_event_loop()
 
     app.add_handler(CommandHandler("channel", set_channel))
     app.add_handler(CommandHandler("time", set_time))
@@ -170,8 +174,10 @@ def main():
     print("Bot started.")
     app.run_polling()
 
+
 if __name__ == "__main__":
     main()
+
 
 
 
